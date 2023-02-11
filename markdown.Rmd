@@ -1,0 +1,270 @@
+---
+title: "MA304 - Texas, Dellas Police Data Analysis"
+author: "1905905"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(dsEssex)
+library(ggplot2)
+library(leaflet)
+library(hablar)
+library(tidyr)
+library(tidyverse)
+library(ggcorrplot)
+library(plotly)
+library(htmlwidgets)
+library(DT)
+library(ggthemes)
+```
+```{r}
+load("data.Rdata")
+```
+```{r eval=FALSE, include=FALSE}
+summary(data)
+head(data)
+table(duplicated(data$SUBJECT_ID))
+table(duplicated(data$UOF_NUMBER))
+table(duplicated(data$OFFICER_ID))
+table(data$SUBJECT_GENDER)
+table(data$OFFICER_GENDER)
+```
+
+## Data preprocessing
+
+
+The intial data preprocessing consists of the given four steps:
+
+ * Changing observations' values.
+Most of the variables are of the character type, therefore in order for R program to recognize some values as missing, the "NULL" values are changed to NAs.
+ * Changing data types.
+The INCIDENT_TIME is changed to 24h format and the OFFICER_HIRE_DATE and INCIDENT_DATE are changed to the Date type of data.
+ * Removing redundant variables.
+There is several variables describing the location, in this analysis only the LOCATION_LATITUDE and LOCATION_LONGTITUDE are used, therefore the rest of the columns with location data is dropped. 
+ * Removing certain observations.
+The subject and officer ID's have to uniquely identify the subject or officer. The rows with the subject's ID or officer's ID being 0, are removed. Also the observation containing the subject's reported gender being "Unknown" is removed.
+ * Missing data
+The method chosen to deal with missing data is deletion. This method is suited the best since there is a significant amount of the categorical data that cannot be imputed. Variable NUMBER_EC_CYCLES is removed due to very high number of missing data. The rows with missing data are also deleted. 
+
+
+After the initial preprocessing steps, the data changed from 2383 observations and 47 variables to 2076 observations and 34 variables.
+
+
+
+```{r data_preparation}
+data <- data[, -c(20:31,46)]
+data[data == "NULL"] = NA
+data <- subset(data, SUBJECT_GENDER != "Unknown" & SUBJECT_ID != 0 & OFFICER_ID != 0)
+data$INCIDENT_TIME <- format(as.POSIXct(data$INCIDENT_TIME,format='%I:%M:%S %p'), format="%H:%M:%S")
+data$OFFICER_HIRE_DATE <- as.Date(data$OFFICER_HIRE_DATE, format = "%m/%d/%y")
+data$INCIDENT_DATE <- as.Date(data$INCIDENT_DATE, format = "%m/%d/%y")
+data <- data[complete.cases(data),]
+```
+
+## Officer characteristics analysis
+
+
+This part of analysis focuses on the officers characteristics. Its aim is to investigate the diversity among the officers in terms of the race and gender. The data used is presented in the form of a table below. 
+
+```{r datatable_of_officer, message=FALSE, warning=FALSE}
+officer <- data[,c(4:8)]
+datatable(officer[,-1],filter ="top", rownames=F)
+```
+
+```{r}
+gg1 <-ggplot(officer,aes(y=OFFICER_RACE,fill=OFFICER_RACE))+geom_bar()+facet_wrap(OFFICER_GENDER~.)+scale_fill_brewer(palette="Spectral")+theme(legend.position="none")+labs(y="Race of the officers",title="Number of officers based on race and gender")
+gg1
+```
+
+
+The graph above gives a good initial look into the disproportions among the gender and race of the officers. The police department has a vast majority of white male officers. The data represents only officers from the Dallas policy department in the year 2016, that were involved in the some form of use of force during an incident. 
+
+
+```{r officer_race_gender}
+
+officer_ind_other <- subset(officer, OFFICER_RACE != "Other" & OFFICER_RACE != "American Ind")
+gg2 <- ggplot(officer_ind_other, aes(x=OFFICER_YEARS_ON_FORCE)) + geom_histogram(binwidth = 5, fill="steelblue")+ facet_grid(OFFICER_RACE~ OFFICER_GENDER)+theme_bw(base_size = 12)+labs(x="Years on the force of officers")
+ggplotly(gg2) 
+```
+
+
+
+
+```{r officer_race_gender_other}
+officer_ind <- subset(officer, OFFICER_RACE == "Other" | OFFICER_RACE == "American Ind")
+gg3 <- ggplot(officer_ind, aes(OFFICER_YEARS_ON_FORCE)) + geom_histogram(binwidth = 5,fill="steelblue")+ facet_grid(OFFICER_RACE~ OFFICER_GENDER)+theme_bw(base_size = 12)+labs(x="Years on the force of officers")
+ggplotly(gg3)
+```
+
+
+It is important to notice that the American Ind and Other are plotted separately from the rest of data due to the very low number of officers belonging to those ethnicities. T
+Most of the officers have been on the force for 5 to 10 years. There is a couple of officers who have been working for over 30 years: the white, black, hispanic males and white, black females. The big portion of the officers have been working around 5 years. 
+
+
+```{r officer_race_years}
+ggplot(officer, aes(OFFICER_GENDER,OFFICER_YEARS_ON_FORCE))+ geom_boxplot(aes(fill=OFFICER_RACE))+scale_fill_brewer(palette="Spectral")+labs(x="Gender",y="Years on the force",fill="Officers race")
+```
+
+Based on this graph it can be deducted that the American Indians have been generally working the longest as a group, but taking into account that there is only 5 of American Indian officers the conclusion is wrong. More than 25% of the officers who are male and black have been working for over 15 years on the force. Over 25% of the officers who are white and male have been working for over 10 years on the force. The 25 % of hispanic men working as officers lays above the value oscillating around 8 years, therefore 25% of them have been working for 8 years up to 18 years and few officers have been working over 20 years on the force. 
+
+The women years of on the force are much shorter, the female group where over 25% ave been working more at least 10 years is og black ethnicity.25% White female officers have been working at least 8 years on the force. 4 of them have been working more than 35 years.
+
+
+##Subject characteristics
+
+
+The data reported by the officers describes subjects by whether they had the weapon, were they intoxicated or under influence of the drugs or if they appeared mentally stable. 
+
+```{r}
+subject <- data[,c(1,12:14,18,19,20,21)]
+subject <- unique(subject)
+datatable(subject[,-c(1,2,7,8)])
+```
+```{r}
+ggplot(subject, aes(x=SUBJECT_GENDER,y=SUBJECT_RACE, color= SUBJECT_RACE)) + geom_jitter()+scale_colour_brewer(palette="Spectral")+labs(x="Gender",y="Race",color="Subjects race",title="Subjects characteristic")+theme_bw()
+
+```
+
+
+There is more male subjects than the female subjects. The most dominant race is black, then hispanic and white. 
+
+
+```{r}
+ggplot(subject, aes(y=SUBJECT_DESCRIPTION))+geom_bar(aes(fill=SUBJECT_RACE))+facet_grid(SUBJECT_GENDER~.)+scale_fill_brewer(palette="Spectral")+theme_bw()+labs(y=" ",fill="Race", title = "Subjects description")
+
+```
+
+
+The graph above presents the subjects' descriptions reported by the officer. Subjects tend to be more often under some form of influence then having some form of a weapon. Female subjects were most often reported as mentally unstable, whereas the male subjects were reported most often to be intoxicated.
+
+
+```{r}
+
+gg4 = ggplot(subject,aes(y=SUBJECT_RACE,x=SUBJECT_GENDER))+geom_jitter(aes(color=SUBJECT_RACE))+scale_color_brewer(palette="Spectral")+theme_bw()+labs(x="Race",y="Gender",color="Subjects race", title="Subjects description")
+gg4 + facet_wrap(vars(SUBJECT_DESCRIPTION))     
+
+```
+
+
+## Incident analysis
+
+
+This part of report focuses on the reasons for force, their effectiveness and the type of force used.
+
+
+```{r}
+SUB1 = separate_rows(subject,SUBJECT_OFFENSE ,sep=",")
+SUB1$SUBJECT_OFFENSE <- tolower(SUB1$SUBJECT_OFFENSE)
+
+for (i in 1:3009){
+  SUB1[i,"SUBJECT_OFFENSE"] <- trimws(SUB1[i,"SUBJECT_OFFENSE"])
+}
+
+ggplot(SUB1, aes(y=SUBJECT_OFFENSE, x = ..prop.., group=1))+geom_bar(fill="steelblue")+theme_bw()+labs(x="Proportion", title="Reason for force",y=" ")
+#repeating varaibles change
+
+```
+
+Most common reported reason for the use of force by the officer is warrant/hold. Then resisting search and transport. Right after that APOWW - apprehension by peace officer without warrant and resisting arrest. It is worth noting that one subject can have multiple reported reasons for force.
+
+
+Map below represents the location of incident with the description of subjects' offence.
+```{r}
+subject %>%
+  leaflet() %>%
+  addTiles() %>%
+  addProviderTiles("Stamen.Toner") %>%
+  addCircleMarkers(lng =~LOCATION_LONGITUDE, lat=~LOCATION_LATITUDE,popup = ~SUBJECT_OFFENSE, clusterOptions = markerClusterOptions())
+
+```
+
+```{r include=FALSE}
+data2 <- data
+data2[data2 == ""] = NA
+attach(data2)
+data2 <-
+  data2 %>%
+  unite(TYPE_OF_FORCE_USED, c(24:33), remove = F, sep=',',na.rm=T)
+
+data2 <- data2[,-c(25:34)]
+data3 <- separate_rows(data2, UOF_NUMBER, TYPE_OF_FORCE_USED, FORCE_EFFECTIVE,sep=",")
+data3$TYPE_OF_FORCE_USED <- tolower(data3$TYPE_OF_FORCE_USED)
+lethal_force= c("weapon display at person","weapon display")
+less_lethal_methods = tolower(c("K-9 deployment", "Baton display", "baton strike/closed mode", "baton strike/open mode", "BD - grabbed", "BD - pushed", "BD - tripped", "OC spray", "Other impact weapon", "pepperball impact", "pepperball saturation", "Taser", "Taser display at person", "taser", "taser display at person"))
+Empty_hand_submission_hard_technique= tolower(c("Feet/Leg/Knee Strike", "Hand/Arm/Elbow Strike"))
+Empty_hand_submission_soft_technique= tolower(c("combat stance", "Hand Controlled Escort", "Handcuffing Take Down",  "Held Suspect Down", "Joint Locks","Leg Restraint System", "LVNR", "pressure points", "take down - Arm", "Take down - Body", "Take down - group", "Take down - head"))
+verbal_direction= c("verbal command")
+
+data3 <- data3 %>% mutate(UOF_level=
+                   case_when(TYPE_OF_FORCE_USED %in% verbal_direction ~ 1,
+                             TYPE_OF_FORCE_USED %in% Empty_hand_submission_hard_technique ~ 3,
+                             TYPE_OF_FORCE_USED %in% Empty_hand_submission_soft_technique ~ 2,
+                             TYPE_OF_FORCE_USED %in% less_lethal_methods ~ 4,
+                             TYPE_OF_FORCE_USED %in% lethal_force ~ 5))
+
+```
+
+
+The type of force used was divided into the use of force continuum defined in https://nij.ojp.gov/topics/articles/use-force-continuum. It categorizes the available uses of force to help with appropriate level of response. The level 0 is the officer presence and the first stage to conflict resolution. The level 1 is the verbal commands. Resistance to those commends may effect in the use of force on level 2: empty hand submission soft technique. The level 3 is the empty hand submission using hard techniques such as kicks and strikes. Level 4 is the use or display of the less-lethal weapons: k-9 deployment, taser, pepperball and baton. The last resort is the use of firepower, meaning the gun display and use. The plot below shows hot a particular type of used forces are assigned to the given level.
+
+
+```{r}
+ggplot(data3, aes(y=TYPE_OF_FORCE_USED,x=UOF_level,fill=factor(UOF_level)))+geom_tile()+labs(x="Use of force continuum levels",y="Type of force used")+scale_fill_brewer(palette="Spectral")+theme_bw()+theme(legend.position="none")
+```
+
+
+```{r}
+ggplot(data3, aes(FORCE_EFFECTIVE,REASON_FOR_FORCE)) + geom_raster(aes(fill=UOF_level))+labs(x="Force effectiveness",y="Reason for force",fill="UOF levels")
+
+
+```
+
+Comparing what UOF levels are effective for what kinf of situation can help in investigating the correct use of force. Nevertheless, the important issue has to be addressed. Usually the level of applied force can change suddenly and not always applied force gradually goes from level 0 to level 5. Each situation has its own aspects that the officer should take into the account. The conclusion can be made that typically the higher level of used force results in the better effectiveness. 
+
+
+```{r}
+gg5=ggplot(data3, aes(INCIDENT_DATE, fill=REASON_FOR_FORCE)) + geom_histogram(binwidth = 10)+scale_fill_brewer(palette="Spectral")+theme_bw()+labs(x="",fill="Reason for force")
+ggplotly(gg5)
+```
+
+```{r}
+
+ggplot(data3, aes(y=REASON_FOR_FORCE,x=UOF_level, fill=REASON_FOR_FORCE))+geom_violin(show.legend = FALSE)+scale_fill_brewer(palette="Spectral")+theme_bw()+labs(x="Use of force continuum level",y="Reason for force")
+```
+
+The situation when the level 5 use of force is deployed almost immediately is when the subject displays a weapon. It is worth noting that the type of weapon used by the subject is not specified in the dataset. The response of the officer is to display a lethal waepon - the gun. Therefore some cases may include the innapropriate use of the gun by the officer, but this data has no way of reflecting that. In the majority of the presented reasons for force, uof on the level 2 is enough to resolve situation most often. 
+
+
+```{r}
+
+ggplot(data3, aes(UOF_level)) + geom_density()+theme_bw()+labs(x="Use of force continuum level",y="Frequency")
+    
+
+data4 <- subset(data3, REASON_FOR_FORCE != "Aggressive Animal" & REASON_FOR_FORCE != "Barricaded Person" & REASON_FOR_FORCE != "Crowd Disbursement" & REASON_FOR_FORCE != "Property Destruction" & SUBJECT_RACE != "American Ind" & SUBJECT_RACE != "Asian" & SUBJECT_RACE != "Other")
+data5 <- subset(data3, REASON_FOR_FORCE == "Aggressive Animal" | REASON_FOR_FORCE == "Barricaded Person" | REASON_FOR_FORCE == "Crowd Disbursement" | REASON_FOR_FORCE == "Property Destruction")
+data6 <- subset(data3, SUBJECT_RACE == "American Ind" | SUBJECT_RACE == "Asian" | SUBJECT_RACE == "Other")
+
+```
+It appears that there are incidents were the development of the use of force went from the empty hand sof techniques such as locking the joins and trying to immobilize the subject without the use of strikes and kicks to the use of the less-lethal weapon. 
+
+```{r}
+gg6<-ggplot(data4, aes(y=REASON_FOR_FORCE,fill= factor(UOF_level))) + geom_bar()+facet_grid(SUBJECT_RACE~SUBJECT_GENDER)+scale_fill_brewer(palette="Spectral")+theme_bw()+labs(y="",fill="UOF level")
+ggplotly(gg6)
+```
+The proportions of the applied level of force seem to be somewhat similar across the subjects of different races. A subject can have multiple reasons for force. 
+
+```{r}
+gg7<-ggplot(data5, aes(y=REASON_FOR_FORCE,fill= factor(UOF_level))) + geom_bar()+facet_grid(SUBJECT_RACE~SUBJECT_GENDER)+scale_fill_brewer(palette="Spectral")+theme_bw()+labs(y="",fill="UOF level")
+ggplotly(gg7)
+```
+
+
+```{r}
+gg8<-ggplot(data6, aes(y=REASON_FOR_FORCE,fill= factor(UOF_level))) + geom_bar()+facet_grid(SUBJECT_RACE~SUBJECT_GENDER)+scale_fill_brewer(palette="Spectral")+theme_bw()+labs(y="",fill="UOF level")
+ggplotly(gg8)
+```
+
+
+
+To measure the racial and gender bias infuencing the use of force by the officers more data is needed. The population characteristics of the Dallas in the year 2016 is needed. Also the social situation and the social prejudice has to be investigated further. Racial and gender discrimination is a very complex issue. Based on the data analysed in this report there can be suggested that the bias may be present in the Dallas police department. 
